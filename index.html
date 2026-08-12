@@ -48,10 +48,10 @@
   #camPreview { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); z-index:0; background:#000; }
   #camPreview.back-cam { transform:none; }
   #dimOverlay { position:absolute; inset:0; background:rgba(0,0,0,.45); z-index:1; pointer-events:none; }
-  #readingBackdrop { position:absolute; left:0; right:0; top:30vh; height:40vh; z-index:1; pointer-events:none; background:linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,.55) 25%, rgba(0,0,0,.55) 75%, rgba(0,0,0,0)); display:none; }
-  #trackWrap { position:absolute; left:0; right:0; top:60vh; padding:0 32px; will-change:transform; z-index:2; }
+  #readingBackdrop { position:absolute; left:0; right:0; height:40vh; z-index:1; pointer-events:none; background:linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,.55) 25%, rgba(0,0,0,.55) 75%, rgba(0,0,0,0)); display:none; }
+  #trackWrap { position:absolute; left:0; right:0; padding:0 32px; will-change:transform; z-index:2; }
   #trackText { line-height:1.5; font-weight:600; white-space:pre-wrap; max-width:1100px; margin:0 auto; padding-bottom:80vh; }
-  #centerLine { position:absolute; left:0; right:0; top:40vh; border-top:1px solid rgba(255,255,255,.15); pointer-events:none; z-index:2; }
+  #centerLine { position:absolute; left:0; right:0; border-top:1px solid rgba(255,255,255,.15); pointer-events:none; z-index:2; }
   #countdownOverlay { position:absolute; inset:0; z-index:30; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; }
   #countdownOverlay span { color:#fff; font-weight:700; font-size:120px; }
 
@@ -66,6 +66,8 @@
   #recIndicator { position:absolute; top:max(.75rem, env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:10; display:none; align-items:center; gap:6px; background:rgba(232,72,44,.9); color:#fff; padding:6px 14px; border-radius:999px; font-size:13px; font-weight:600; }
   #recIndicator .reddot { width:9px; height:9px; border-radius:50%; background:#fff; animation:blink 1s infinite; }
   @keyframes blink { 50% { opacity:.2; } }
+  #speedFlash { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); z-index:15; background:rgba(20,20,24,.85); color:#fff; padding:10px 22px; border-radius:999px; font-size:16px; font-weight:600; opacity:0; pointer-events:none; transition:opacity .15s; }
+  #speedFlash.show { opacity:1; }
 
   #settingsDrawer { position:absolute; right:16px; top:calc(max(.75rem, env(safe-area-inset-top)) + 52px); width:270px; border-radius:16px; padding:16px; background:rgba(20,20,24,.94); border:1px solid rgba(255,255,255,.12); z-index:20; display:none; color:#fff; }
   #settingsDrawer .row-label { font-size:12px; margin-bottom:4px; }
@@ -179,6 +181,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   <div id="trackWrap"><div id="trackText"></div></div>
   <div id="centerLine"></div>
   <div id="recIndicator"><span class="reddot"></span><span id="recTime">0:00</span></div>
+  <div id="speedFlash"></div>
 
   <div class="bar" id="topBar">
     <button class="round-btn" id="exitBtn">✕</button>
@@ -197,6 +200,14 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
       <input type="range" id="dsFontSize" min="24" max="120" value="52" style="flex:1;accent-color:#e8482c" />
       <button class="mini-btn" id="dsFsUp">+</button>
     </div>
+    <div class="row-label">Text position — <span id="readPosLabel">near middle</span></div>
+    <div class="adjust-row">
+      <button class="mini-btn" id="rpDown">▲</button>
+      <input type="range" id="readPos" min="8" max="65" value="40" style="flex:1;accent-color:#e8482c" />
+      <button class="mini-btn" id="rpUp">▼</button>
+    </div>
+    <button id="nearCamBtn" class="hint link" style="display:block;margin-bottom:12px">Snap text near the camera</button>
+
     <div class="row-label">Speed — <span id="speedLabel">40</span>px/s</div>
     <div class="adjust-row">
       <button class="mini-btn" id="spDown">‹</button>
@@ -251,7 +262,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   // ---- state ----
   let fontSize = 52, fontFamily = document.getElementById("fontFamily").value;
   let bgColor = "#000000", textColor = "#ffffff", activePreset = "Black";
-  let voiceMode = true, mirrored = false, speed = 40;
+  let voiceMode = true, mirrored = false, speed = 40, readLinePct = 40;
   let cameraEnabled = false, cameraFacing = "user"; // 'user' = front, 'environment' = back
   let isPlaying = false, speaking = false, micLevel = 0;
   let micStatus = "idle"; // idle|requesting|active|denied|unsupported
@@ -307,6 +318,29 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   document.getElementById("spDown").onclick = () => { speed = clamp(speed - 5, 5, 150); syncSpeedUI(); };
   document.getElementById("spUp").onclick = () => { speed = clamp(speed + 5, 5, 150); syncSpeedUI(); };
 
+  let speedFlashTimer = null;
+  function flashSpeed() {
+    const el = document.getElementById("speedFlash");
+    el.textContent = "Speed: " + speed + " px/s";
+    el.classList.add("show");
+    if (speedFlashTimer) clearTimeout(speedFlashTimer);
+    speedFlashTimer = setTimeout(() => el.classList.remove("show"), 700);
+  }
+  function bumpSpeed(delta) { speed = clamp(speed + delta, 5, 150); syncSpeedUI(); flashSpeed(); }
+
+  function syncReadPosUI() {
+    document.getElementById("readPos").value = readLinePct;
+    const lbl = readLinePct <= 15 ? "near camera" : readLinePct <= 30 ? "upper screen" : readLinePct <= 50 ? "near middle" : "lower screen";
+    document.getElementById("readPosLabel").textContent = lbl;
+    document.getElementById("centerLine").style.top = readLinePct + "vh";
+    document.getElementById("trackWrap").style.top = (readLinePct + 20) + "vh";
+    document.getElementById("readingBackdrop").style.top = Math.max(0, readLinePct - 10) + "vh";
+  }
+  document.getElementById("readPos").oninput = e => { readLinePct = +e.target.value; syncReadPosUI(); };
+  document.getElementById("rpDown").onclick = () => { readLinePct = clamp(readLinePct - 4, 8, 65); syncReadPosUI(); };
+  document.getElementById("rpUp").onclick = () => { readLinePct = clamp(readLinePct + 4, 8, 65); syncReadPosUI(); };
+  document.getElementById("nearCamBtn").onclick = () => { readLinePct = 10; syncReadPosUI(); };
+
   function syncSwitch(id, on) {
     const el = document.getElementById(id);
     el.style.background = on ? "#e8482c" : "#3a3c46";
@@ -343,7 +377,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   document.getElementById("cameraToggle").onclick = () => { cameraEnabled = !cameraEnabled; syncCameraUI(); };
   document.getElementById("camFront").onclick = () => { cameraFacing = "user"; syncCameraUI(); };
   document.getElementById("camBack").onclick = () => { cameraFacing = "environment"; syncCameraUI(); };
-  syncVoiceUI(); syncMirrorUI(); syncFontSizeUI(); syncSpeedUI(); syncCameraUI();
+  syncVoiceUI(); syncMirrorUI(); syncFontSizeUI(); syncSpeedUI(); syncCameraUI(); syncReadPosUI();
 
   function toggleVoiceMode() {
     if (voiceMode) { voiceMode = false; if (!cameraEnabled) stopMedia(); }
@@ -628,6 +662,41 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
     d.style.display = d.style.display === "block" ? "none" : "block";
   };
   document.getElementById("settingsDrawer").onclick = e => e.stopPropagation();
+
+  // ---- swipe up/down anywhere on screen to adjust speed live ----
+  let swipeStartY = null, swipeStartSpeed = 40;
+  const prompterEl = document.getElementById("prompter");
+  prompterEl.addEventListener("touchstart", e => {
+    if (e.target.closest("button") || e.target.closest("#settingsDrawer")) { swipeStartY = null; return; }
+    swipeStartY = e.touches[0].clientY;
+    swipeStartSpeed = speed;
+  }, { passive: true });
+  prompterEl.addEventListener("touchmove", e => {
+    if (swipeStartY == null) return;
+    const dy = swipeStartY - e.touches[0].clientY; // positive = finger moved up = faster
+    const newSpeed = clamp(Math.round(swipeStartSpeed + dy / 2.5), 5, 150);
+    if (newSpeed !== speed) { speed = newSpeed; syncSpeedUI(); flashSpeed(); }
+  }, { passive: true });
+  prompterEl.addEventListener("touchend", () => { swipeStartY = null; });
+
+  // ---- Bluetooth presentation-clicker / page-turn-pedal support ----
+  // These pair as a standard Bluetooth keyboard and send ordinary key
+  // presses, so a plain keydown listener picks them up with no native app
+  // and no special permission. Camera-shutter-style remotes instead emulate
+  // the iPhone's physical volume buttons, which iOS never exposes to any
+  // webpage — those can't be supported here regardless of the code.
+  document.addEventListener("keydown", e => {
+    if (prompterEl.style.display !== "block") return;
+    if (document.getElementById("saveOverlay").style.display === "flex") return;
+    const k = e.key;
+    if (k === " " || k === "Enter" || k === "MediaPlayPause") {
+      e.preventDefault(); setPlaying(!isPlaying);
+    } else if (k === "ArrowUp" || k === "ArrowRight" || k === "PageUp" || k === "MediaTrackNext") {
+      e.preventDefault(); bumpSpeed(5);
+    } else if (k === "ArrowDown" || k === "ArrowLeft" || k === "PageDown" || k === "MediaTrackPrevious") {
+      e.preventDefault(); bumpSpeed(-5);
+    }
+  });
 
   // auto-hide controls (never hides while recording, so status stays visible)
   function bumpControls() {
