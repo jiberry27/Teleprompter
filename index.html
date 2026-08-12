@@ -47,9 +47,10 @@
   #prompter { position:fixed; inset:0; overflow:hidden; user-select:none; touch-action:none; display:none; background:#000; }
   #camPreview { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); z-index:0; background:#000; }
   #camPreview.back-cam { transform:none; }
-  #dimOverlay { position:absolute; inset:0; background:rgba(0,0,0,.35); z-index:1; pointer-events:none; }
+  #dimOverlay { position:absolute; inset:0; background:rgba(0,0,0,.45); z-index:1; pointer-events:none; }
+  #readingBackdrop { position:absolute; left:0; right:0; top:30vh; height:40vh; z-index:1; pointer-events:none; background:linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,.55) 25%, rgba(0,0,0,.55) 75%, rgba(0,0,0,0)); display:none; }
   #trackWrap { position:absolute; left:0; right:0; top:60vh; padding:0 32px; will-change:transform; z-index:2; }
-  #trackText { line-height:1.5; font-weight:600; white-space:pre-wrap; max-width:1100px; margin:0 auto; padding-bottom:80vh; text-shadow: 0 2px 12px rgba(0,0,0,.6); }
+  #trackText { line-height:1.5; font-weight:600; white-space:pre-wrap; max-width:1100px; margin:0 auto; padding-bottom:80vh; }
   #centerLine { position:absolute; left:0; right:0; top:40vh; border-top:1px solid rgba(255,255,255,.15); pointer-events:none; z-index:2; }
   #countdownOverlay { position:absolute; inset:0; z-index:30; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; }
   #countdownOverlay span { color:#fff; font-weight:700; font-size:120px; }
@@ -61,6 +62,7 @@
   .meter { width:40px; height:6px; border-radius:999px; overflow:hidden; background:rgba(255,255,255,.25); }
   .meter .fill { height:100%; border-radius:999px; background:#fff; width:0%; }
   .pill .linklike { color:#fff; text-decoration:underline; background:none; border:none; font-size:12px; padding:0; }
+  #pillActionBtn { color:#fff; text-decoration:underline; background:none; border:none; font-size:12px; padding:0; }
   #recIndicator { position:absolute; top:max(.75rem, env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:10; display:none; align-items:center; gap:6px; background:rgba(232,72,44,.9); color:#fff; padding:6px 14px; border-radius:999px; font-size:13px; font-weight:600; }
   #recIndicator .reddot { width:9px; height:9px; border-radius:50%; background:#fff; animation:blink 1s infinite; }
   @keyframes blink { 50% { opacity:.2; } }
@@ -172,6 +174,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
 <div id="prompter">
   <video id="camPreview" autoplay muted playsinline></video>
   <div id="dimOverlay"></div>
+  <div id="readingBackdrop"></div>
   <div id="countdownOverlay"><span id="countdownNum">3</span></div>
   <div id="trackWrap"><div id="trackText"></div></div>
   <div id="centerLine"></div>
@@ -179,7 +182,11 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
 
   <div class="bar" id="topBar">
     <button class="round-btn" id="exitBtn">✕</button>
-    <div class="pill" id="statusPill"></div>
+    <div class="pill" id="statusPill">
+      <span id="pillText"></span>
+      <span class="meter" id="pillMeterWrap" style="display:none"><span class="fill" id="pillMeterFill"></span></span>
+      <button class="linklike" id="pillActionBtn" style="display:none"></button>
+    </div>
     <button class="round-btn" id="settingsBtn">⚙</button>
   </div>
 
@@ -253,6 +260,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   let audioCtx = null, analyser = null, mediaStream = null, wakeLock = null;
   let hideTimer = null;
   let mediaRecorder = null, recordedChunks = [], recStartTs = 0, recTimerInterval = null, isRecording = false;
+  let statusUiInterval = null;
 
   // ---- setup screen: presets ----
   const presetsEl = document.getElementById("presets");
@@ -386,10 +394,12 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
       camEl.classList.toggle("back-cam", cameraFacing === "environment");
       camEl.style.display = "block";
       document.getElementById("dimOverlay").style.display = "block";
+      document.getElementById("readingBackdrop").style.display = "block";
       flipBtn.style.display = "flex";
     } else {
       camEl.style.display = "none";
       document.getElementById("dimOverlay").style.display = "none";
+      document.getElementById("readingBackdrop").style.display = "none";
       flipBtn.style.display = "none";
     }
   }
@@ -411,7 +421,11 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
 
     const data = new Uint8Array(analyser.fftSize);
     const threshold = 6;
-    let frame = 0;
+    // Computation runs at full frame rate (cheap: typed-array math only, no
+    // DOM writes) so it stays accurate. UI updates are decoupled onto a
+    // slower timer below so they don't compete with the scroll animation and
+    // the camera's own rendering for main-thread time every single frame —
+    // that contention is what was causing the camera preview to stall.
     (function poll() {
       if (!analyser) return;
       if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
@@ -421,18 +435,21 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
       const rms = Math.sqrt(sumSq / data.length);
       if (rms > threshold) { lastSpeechAt = performance.now(); speaking = true; }
       else if (performance.now() - lastSpeechAt > 700) { speaking = false; }
-      frame++;
-      if (frame % 4 === 0) { micLevel = clamp(Math.round((rms / 60) * 100), 0, 100); renderStatus(); }
+      micLevel = clamp(Math.round((rms / 60) * 100), 0, 100);
       requestAnimationFrame(poll);
     })();
+    if (statusUiInterval) clearInterval(statusUiInterval);
+    statusUiInterval = setInterval(renderStatus, 150);
   }
 
   function stopMedia() {
     if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
     if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+    if (statusUiInterval) { clearInterval(statusUiInterval); statusUiInterval = null; }
     analyser = null; micStatus = "idle";
     document.getElementById("camPreview").style.display = "none";
     document.getElementById("dimOverlay").style.display = "none";
+    document.getElementById("readingBackdrop").style.display = "none";
     document.getElementById("flipCamBtn").style.display = "none";
     renderStatus();
   }
@@ -447,37 +464,52 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   document.getElementById("flipCamBtn").onclick = e => { e.stopPropagation(); flipCamera(); };
 
   function renderStatus() {
-    const pill = document.getElementById("statusPill");
+    const pillText = document.getElementById("pillText");
+    const pillMeterWrap = document.getElementById("pillMeterWrap");
+    const pillMeterFill = document.getElementById("pillMeterFill");
+    const pillActionBtn = document.getElementById("pillActionBtn");
     const drawerMeterWrap = document.getElementById("drawerMeterWrap");
     const retryBtn = document.getElementById("micRetryBtn");
+
     if (!voiceMode && !cameraEnabled) {
-      pill.innerHTML = '<span>Manual mode</span>';
+      pillText.textContent = "Manual mode";
+      pillMeterWrap.style.display = "none"; pillActionBtn.style.display = "none";
       drawerMeterWrap.style.display = "none"; retryBtn.style.display = "none";
       return;
     }
     if (micStatus === "active") {
-      const label = cameraEnabled ? (voiceMode ? (speaking ? "🎙 Hearing you" : "… Quiet") : "📷 Camera on") : (speaking ? "🎙 Hearing you" : "… Quiet");
-      pill.innerHTML = voiceMode
-        ? `<span>${label}</span><span class="meter"><span class="fill" style="width:${micLevel}%;background:${speaking ? '#3ddc6a' : '#fff'}"></span></span>`
-        : `<span>${label}</span>`;
-      drawerMeterWrap.style.display = voiceMode ? "block" : "none";
-      document.getElementById("drawerMeterFill").style.width = micLevel + "%";
-      document.getElementById("drawerMeterFill").style.background = speaking ? "#3ddc6a" : "#666";
+      pillText.textContent = cameraEnabled ? (voiceMode ? (speaking ? "🎙 Hearing you" : "… Quiet") : "📷 Camera on") : (speaking ? "🎙 Hearing you" : "… Quiet");
+      pillActionBtn.style.display = "none";
+      if (voiceMode) {
+        pillMeterWrap.style.display = "inline-flex";
+        pillMeterFill.style.width = micLevel + "%";
+        pillMeterFill.style.background = speaking ? "#3ddc6a" : "#fff";
+        drawerMeterWrap.style.display = "block";
+        document.getElementById("drawerMeterFill").style.width = micLevel + "%";
+        document.getElementById("drawerMeterFill").style.background = speaking ? "#3ddc6a" : "#666";
+      } else {
+        pillMeterWrap.style.display = "none";
+        drawerMeterWrap.style.display = "none";
+      }
       retryBtn.style.display = "none";
     } else if (micStatus === "denied" || micStatus === "unsupported") {
-      pill.innerHTML = '<button class="linklike" id="pillRetry">Retry</button>';
-      document.getElementById("pillRetry").onclick = e => { e.stopPropagation(); startMedia(); };
+      pillText.textContent = "";
+      pillMeterWrap.style.display = "none";
+      pillActionBtn.textContent = "Retry"; pillActionBtn.style.display = "inline";
       drawerMeterWrap.style.display = "none"; retryBtn.style.display = "block";
     } else if (micStatus === "requesting") {
-      pill.innerHTML = '<span>Requesting access…</span>';
+      pillText.textContent = "Requesting access…";
+      pillMeterWrap.style.display = "none"; pillActionBtn.style.display = "none";
       drawerMeterWrap.style.display = "none"; retryBtn.style.display = "none";
     } else {
-      pill.innerHTML = '<button class="linklike" id="pillEnable">Enable</button>';
-      document.getElementById("pillEnable").onclick = e => { e.stopPropagation(); startMedia(); };
+      pillText.textContent = "";
+      pillMeterWrap.style.display = "none";
+      pillActionBtn.textContent = "Enable"; pillActionBtn.style.display = "inline";
       drawerMeterWrap.style.display = "none"; retryBtn.style.display = "none";
     }
     syncVoiceUI();
   }
+  document.getElementById("pillActionBtn").onclick = e => { e.stopPropagation(); startMedia(); };
   document.getElementById("micRetryBtn").onclick = startMedia;
 
   // ---- recording ----
