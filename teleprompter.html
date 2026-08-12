@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>Teleprompter</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; height: 100%; background: #0e0f13; font-family: -apple-system, Helvetica, Arial, sans-serif; }
+  button { font-family: inherit; cursor: pointer; }
+  input, select, textarea { font-family: inherit; }
+  ::-webkit-scrollbar { width: 0; height: 0; }
+
+  #setup { max-width: 640px; margin: 0 auto; padding: max(2.5rem, env(safe-area-inset-top)) 1.25rem 6rem; color: #f2f0ea; }
+  .eyebrow { display:flex; align-items:center; gap:8px; margin-bottom:4px; }
+  .dot { width:10px; height:10px; border-radius:50%; background:#e8482c; }
+  .label-eyebrow { font-size:12px; letter-spacing:.2em; text-transform:uppercase; color:#8a8a92; }
+  h1 { font-family: Georgia, serif; font-size: 30px; font-weight:600; margin: 4px 0 24px; }
+  label.field-label { display:block; font-size:14px; color:#a8a8b0; margin-bottom:8px; }
+  textarea#script { width:100%; border-radius:12px; padding:16px; font-size:16px; line-height:1.6; background:#1a1c22; color:#f2f0ea; border:1px solid #2c2e36; resize:vertical; margin-bottom:24px; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:24px; }
+  select#fontFamily { width:100%; border-radius:12px; padding:12px; font-size:16px; background:#1a1c22; color:#f2f0ea; border:1px solid #2c2e36; }
+  .size-row { display:flex; align-items:center; gap:8px; border-radius:12px; padding:8px; background:#1a1c22; border:1px solid #2c2e36; }
+  .icon-btn-sm { width:44px; height:44px; border-radius:8px; background:#2c2e36; border:none; color:#f2f0ea; display:flex; align-items:center; justify-content:center; font-size:18px; }
+  input[type=range] { flex:1; accent-color:#e8482c; }
+  .presets { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:12px; }
+  .preset-btn { padding:8px 16px; border-radius:999px; font-size:14px; border:1px solid #2c2e36; }
+  .preset-btn.active { border:2px solid #e8482c; }
+  .color-row { display:flex; gap:16px; margin-bottom:24px; }
+  .color-row label { display:flex; align-items:center; gap:8px; font-size:14px; color:#a8a8b0; }
+  input[type=color] { width:36px; height:36px; border-radius:8px; border:0; padding:0; background:none; }
+  .toggle-card { display:flex; align-items:center; justify-content:space-between; border-radius:12px; padding:16px; background:#1a1c22; border:1px solid #2c2e36; margin-bottom:12px; }
+  .toggle-card .title { font-size:14px; font-weight:600; }
+  .toggle-card .sub { font-size:12px; color:#8a8a92; margin-top:2px; max-width:340px; }
+  .switch { width:56px; height:32px; border-radius:999px; position:relative; border:none; flex-shrink:0; margin-left:12px; }
+  .switch .knob { position:absolute; top:4px; width:24px; height:24px; border-radius:50%; background:#fff; transition:left .15s; }
+  .hint { font-size:12px; color:#6a6a72; margin: -4px 0 20px 2px; }
+  .hint.link { color:#fff; text-decoration:underline; background:none; border:none; padding:0; cursor:pointer; }
+  .segmented { display:flex; gap:8px; margin-top:12px; }
+  .seg-btn { flex:1; padding:10px; border-radius:10px; font-size:13px; border:1px solid #2c2e36; background:#12141a; color:#a8a8b0; }
+  .seg-btn.active { border-color:#e8482c; color:#fff; background:#241611; }
+  #startBtn { width:100%; padding:16px; border-radius:16px; font-size:18px; font-weight:600; border:none; background:#e8482c; color:#fff; display:flex; align-items:center; justify-content:center; gap:8px; }
+  #startBtn:disabled { opacity:.4; }
+  .footnote { font-size:12px; text-align:center; margin-top:12px; color:#6a6a72; }
+
+  #prompter { position:fixed; inset:0; overflow:hidden; user-select:none; touch-action:none; display:none; background:#000; }
+  #camPreview { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; transform:scaleX(-1); z-index:0; background:#000; }
+  #camPreview.back-cam { transform:none; }
+  #dimOverlay { position:absolute; inset:0; background:rgba(0,0,0,.35); z-index:1; pointer-events:none; }
+  #trackWrap { position:absolute; left:0; right:0; top:60vh; padding:0 32px; will-change:transform; z-index:2; }
+  #trackText { line-height:1.5; font-weight:600; white-space:pre-wrap; max-width:1100px; margin:0 auto; padding-bottom:80vh; text-shadow: 0 2px 12px rgba(0,0,0,.6); }
+  #centerLine { position:absolute; left:0; right:0; top:40vh; border-top:1px solid rgba(255,255,255,.15); pointer-events:none; z-index:2; }
+  #countdownOverlay { position:absolute; inset:0; z-index:30; background:rgba(0,0,0,.6); display:none; align-items:center; justify-content:center; }
+  #countdownOverlay span { color:#fff; font-weight:700; font-size:120px; }
+
+  .bar { position:absolute; left:0; right:0; display:flex; align-items:center; justify-content:space-between; padding:0 16px; transition:opacity .3s; z-index:10; }
+  #topBar { top:max(.75rem, env(safe-area-inset-top)); }
+  .round-btn { width:44px; height:44px; border-radius:50%; border:none; background:rgba(60,60,64,.55); color:#fff; display:flex; align-items:center; justify-content:center; font-size:18px; }
+  .pill { display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:999px; background:rgba(60,60,64,.55); color:#fff; font-size:12px; }
+  .meter { width:40px; height:6px; border-radius:999px; overflow:hidden; background:rgba(255,255,255,.25); }
+  .meter .fill { height:100%; border-radius:999px; background:#fff; width:0%; }
+  .pill .linklike { color:#fff; text-decoration:underline; background:none; border:none; font-size:12px; padding:0; }
+  #recIndicator { position:absolute; top:max(.75rem, env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:10; display:none; align-items:center; gap:6px; background:rgba(232,72,44,.9); color:#fff; padding:6px 14px; border-radius:999px; font-size:13px; font-weight:600; }
+  #recIndicator .reddot { width:9px; height:9px; border-radius:50%; background:#fff; animation:blink 1s infinite; }
+  @keyframes blink { 50% { opacity:.2; } }
+
+  #settingsDrawer { position:absolute; right:16px; top:calc(max(.75rem, env(safe-area-inset-top)) + 52px); width:270px; border-radius:16px; padding:16px; background:rgba(20,20,24,.94); border:1px solid rgba(255,255,255,.12); z-index:20; display:none; color:#fff; }
+  #settingsDrawer .row-label { font-size:12px; margin-bottom:4px; }
+  #settingsDrawer .adjust-row { display:flex; align-items:center; gap:8px; margin-bottom:12px; }
+  .mini-btn { width:36px; height:36px; border-radius:8px; background:#333; border:none; color:#fff; display:flex; align-items:center; justify-content:center; }
+  .drawer-toggle-row { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .switch-sm { width:44px; height:24px; border-radius:999px; position:relative; border:none; }
+  .switch-sm .knob { position:absolute; top:4px; width:16px; height:16px; border-radius:50%; background:#fff; }
+  #drawerMeterWrap { margin-bottom:12px; }
+  #drawerMeterWrap .lbl { font-size:10px; color:#8a8a92; margin-bottom:4px; }
+  #drawerMeter { width:100%; height:8px; border-radius:999px; overflow:hidden; background:#333; }
+  #drawerMeter .fill { height:100%; border-radius:999px; width:0%; background:#666; }
+
+  #bottomBar { bottom:max(1.25rem, env(safe-area-inset-bottom)); justify-content:center; gap:18px; }
+  #playBtn { width:64px; height:64px; border-radius:50%; border:none; background:#e8482c; color:#fff; font-size:24px; display:flex; align-items:center; justify-content:center; }
+  #recordBtn { width:56px; height:56px; border-radius:50%; border:3px solid #fff; background:rgba(232,72,44,.15); display:flex; align-items:center; justify-content:center; }
+  #recordBtn .dot { width:22px; height:22px; border-radius:50%; background:#e8482c; transition: border-radius .15s, width .15s, height .15s; }
+  #recordBtn.recording .dot { border-radius:6px; width:18px; height:18px; }
+
+  #saveOverlay { position:fixed; inset:0; z-index:50; background:rgba(8,8,10,.96); display:none; flex-direction:column; align-items:center; justify-content:center; padding: max(1.5rem, env(safe-area-inset-top)) 1.5rem max(1.5rem, env(safe-area-inset-bottom)); }
+  #saveOverlay video { max-width:100%; max-height:60vh; border-radius:14px; background:#000; }
+  #saveOverlay .title { color:#fff; font-size:16px; font-weight:600; margin:18px 0 4px; }
+  #saveOverlay .sub { color:#9a9aa2; font-size:13px; margin-bottom:20px; text-align:center; }
+  #saveOverlay .btn-row { display:flex; gap:12px; width:100%; max-width:360px; }
+  #saveOverlay button { flex:1; padding:14px; border-radius:14px; border:none; font-size:15px; font-weight:600; }
+  #saveBtn { background:#e8482c; color:#fff; }
+  #discardBtn { background:#26262c; color:#fff; }
+</style>
+</head>
+<body>
+
+<div id="setup">
+  <div class="eyebrow"><span class="dot"></span><span class="label-eyebrow">Teleprompter</span></div>
+  <h1>Set up your read</h1>
+
+  <label class="field-label">Script</label>
+  <textarea id="script" rows="8" placeholder="Paste your script here…">Paste or type your script here.
+
+The text will scroll smoothly as you read it aloud.
+
+Turn on Voice Mode and it will pause automatically whenever you pause, stumble, or go off script — then pick back up the moment you start talking again.</textarea>
+
+  <div class="grid2">
+    <div>
+      <label class="field-label">Font</label>
+      <select id="fontFamily">
+        <option value="-apple-system, Helvetica, Arial, sans-serif">Sans</option>
+        <option value="Georgia, 'Times New Roman', serif">Serif</option>
+        <option value="'SF Mono', Menlo, Consolas, monospace">Mono</option>
+        <option value="'Arial Narrow', Helvetica, sans-serif">Condensed</option>
+        <option value="'Avenir Next', Futura, sans-serif">Rounded</option>
+      </select>
+    </div>
+    <div>
+      <label class="field-label">Font size — <span id="fontSizeLabel">52</span>px</label>
+      <div class="size-row">
+        <button class="icon-btn-sm" id="fsDown">−</button>
+        <input type="range" id="fontSize" min="24" max="120" value="52" />
+        <button class="icon-btn-sm" id="fsUp">+</button>
+      </div>
+    </div>
+  </div>
+
+  <label class="field-label">Colors <span style="color:#6a6a72">(shown behind the camera when it's off)</span></label>
+  <div class="presets" id="presets"></div>
+  <div class="color-row">
+    <label>Text <input type="color" id="textColor" value="#ffffff" /></label>
+    <label>Background <input type="color" id="bgColor" value="#000000" /></label>
+  </div>
+
+  <div class="toggle-card">
+    <div>
+      <div class="title">Record with camera</div>
+      <div class="sub">Shows a live camera preview behind your script and lets you record + save the take, like a standalone teleprompter app.</div>
+    </div>
+    <button class="switch" id="cameraToggle"><span class="knob"></span></button>
+  </div>
+  <div id="cameraOptions" style="display:none;margin:-4px 0 20px">
+    <div class="segmented">
+      <button class="seg-btn active" id="camFront">Front camera</button>
+      <button class="seg-btn" id="camBack">Back camera</button>
+    </div>
+  </div>
+
+  <div class="toggle-card">
+    <div>
+      <div class="title">Voice-adaptive scroll</div>
+      <div class="sub">Pauses when you pause or ad lib, resumes when you speak. Mic audio is measured locally for volume only.</div>
+    </div>
+    <button class="switch" id="voiceToggle"><span class="knob"></span></button>
+  </div>
+  <div class="hint" id="voiceHint">Camera/mic permission will be requested when you tap Start.</div>
+
+  <div class="toggle-card">
+    <div>
+      <div class="title">Mirror text</div>
+      <div class="sub">For beamsplitter-glass teleprompter rigs</div>
+    </div>
+    <button class="switch" id="mirrorToggle"><span class="knob"></span></button>
+  </div>
+
+  <button id="startBtn">▶ Start</button>
+  <p class="footnote">Outdoors: try the "Sunlight" preset and a larger font — bright yellow-on-black holds up best in direct light.</p>
+</div>
+
+<div id="prompter">
+  <video id="camPreview" autoplay muted playsinline></video>
+  <div id="dimOverlay"></div>
+  <div id="countdownOverlay"><span id="countdownNum">3</span></div>
+  <div id="trackWrap"><div id="trackText"></div></div>
+  <div id="centerLine"></div>
+  <div id="recIndicator"><span class="reddot"></span><span id="recTime">0:00</span></div>
+
+  <div class="bar" id="topBar">
+    <button class="round-btn" id="exitBtn">✕</button>
+    <div class="pill" id="statusPill"></div>
+    <button class="round-btn" id="settingsBtn">⚙</button>
+  </div>
+
+  <div id="settingsDrawer">
+    <div class="row-label">Font size — <span id="dsFontSizeLabel">52</span>px</div>
+    <div class="adjust-row">
+      <button class="mini-btn" id="dsFsDown">−</button>
+      <input type="range" id="dsFontSize" min="24" max="120" value="52" style="flex:1;accent-color:#e8482c" />
+      <button class="mini-btn" id="dsFsUp">+</button>
+    </div>
+    <div class="row-label">Speed — <span id="speedLabel">40</span>px/s</div>
+    <div class="adjust-row">
+      <button class="mini-btn" id="spDown">‹</button>
+      <input type="range" id="speed" min="5" max="150" value="40" style="flex:1;accent-color:#e8482c" />
+      <button class="mini-btn" id="spUp">›</button>
+    </div>
+    <div class="drawer-toggle-row">
+      <span style="font-size:12px">Voice mode</span>
+      <button class="switch-sm" id="dsVoiceToggle"><span class="knob"></span></button>
+    </div>
+    <div id="drawerMeterWrap" style="display:none">
+      <div class="lbl">Live mic level (talk to test)</div>
+      <div id="drawerMeter"><div class="fill" id="drawerMeterFill"></div></div>
+    </div>
+    <button id="micRetryBtn" class="hint link" style="display:none;margin-bottom:12px">Tap to try enabling mic again</button>
+    <div class="drawer-toggle-row" style="margin-bottom:0">
+      <span style="font-size:12px">Mirror text</span>
+      <button class="switch-sm" id="dsMirrorToggle"><span class="knob"></span></button>
+    </div>
+  </div>
+
+  <div class="bar" id="bottomBar">
+    <button class="round-btn" id="restartBtn">⟲</button>
+    <button id="recordBtn"><span class="dot"></span></button>
+    <button id="playBtn">▶</button>
+    <button class="round-btn" id="flipCamBtn" style="display:none">⟳</button>
+    <button class="round-btn" id="mirrorBtn">⇋</button>
+  </div>
+</div>
+
+<div id="saveOverlay">
+  <video id="reviewVideo" controls playsinline></video>
+  <div class="title">Recording ready</div>
+  <div class="sub" id="saveSub">Save it to your camera roll, or discard and try again.</div>
+  <div class="btn-row">
+    <button id="discardBtn">Discard</button>
+    <button id="saveBtn">Save</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  const PRESETS = [
+    { label: "Black", bg: "#000000", fg: "#ffffff" },
+    { label: "White", bg: "#ffffff", fg: "#000000" },
+    { label: "Sunlight", bg: "#000000", fg: "#ffe14d" },
+    { label: "Navy", bg: "#0a1128", fg: "#f5f5f0" },
+    { label: "Green", bg: "#0b3d0b", fg: "#ffffff" },
+  ];
+  const clamp = (v, min, max) => Math.min(max, Math.max(min, v));
+
+  // ---- state ----
+  let fontSize = 52, fontFamily = document.getElementById("fontFamily").value;
+  let bgColor = "#000000", textColor = "#ffffff", activePreset = "Black";
+  let voiceMode = true, mirrored = false, speed = 40;
+  let cameraEnabled = false, cameraFacing = "user"; // 'user' = front, 'environment' = back
+  let isPlaying = false, speaking = false, micLevel = 0;
+  let micStatus = "idle"; // idle|requesting|active|denied|unsupported
+  let scrollY = 0, lastTs = null, rafId = null;
+  let lastSpeechAt = 0;
+  let audioCtx = null, analyser = null, mediaStream = null, wakeLock = null;
+  let hideTimer = null;
+  let mediaRecorder = null, recordedChunks = [], recStartTs = 0, recTimerInterval = null, isRecording = false;
+
+  // ---- setup screen: presets ----
+  const presetsEl = document.getElementById("presets");
+  PRESETS.forEach(p => {
+    const b = document.createElement("button");
+    b.className = "preset-btn" + (p.label === activePreset ? " active" : "");
+    b.style.background = p.bg; b.style.color = p.fg;
+    b.textContent = p.label;
+    b.onclick = () => {
+      activePreset = p.label; bgColor = p.bg; textColor = p.fg;
+      document.getElementById("bgColor").value = p.bg;
+      document.getElementById("textColor").value = p.fg;
+      [...presetsEl.children].forEach(c => c.classList.remove("active"));
+      b.classList.add("active");
+    };
+    presetsEl.appendChild(b);
+  });
+
+  document.getElementById("textColor").oninput = e => textColor = e.target.value;
+  document.getElementById("bgColor").oninput = e => bgColor = e.target.value;
+  document.getElementById("fontFamily").onchange = e => fontFamily = e.target.value;
+
+  function wireFontSizeControls(rangeId, downId, upId) {
+    const range = document.getElementById(rangeId);
+    range.oninput = () => { fontSize = +range.value; syncFontSizeUI(); };
+    document.getElementById(downId).onclick = () => { fontSize = clamp(fontSize - 4, 24, 120); syncFontSizeUI(); };
+    document.getElementById(upId).onclick = () => { fontSize = clamp(fontSize + 4, 24, 120); syncFontSizeUI(); };
+  }
+  function syncFontSizeUI() {
+    document.getElementById("fontSize").value = fontSize;
+    document.getElementById("fontSizeLabel").textContent = fontSize;
+    document.getElementById("dsFontSize").value = fontSize;
+    document.getElementById("dsFontSizeLabel").textContent = fontSize;
+    document.getElementById("trackText").style.fontSize = fontSize + "px";
+  }
+  wireFontSizeControls("fontSize", "fsDown", "fsUp");
+  wireFontSizeControls("dsFontSize", "dsFsDown", "dsFsUp");
+
+  function syncSpeedUI() {
+    document.getElementById("speed").value = speed;
+    document.getElementById("speedLabel").textContent = speed;
+  }
+  document.getElementById("speed").oninput = e => { speed = +e.target.value; syncSpeedUI(); };
+  document.getElementById("spDown").onclick = () => { speed = clamp(speed - 5, 5, 150); syncSpeedUI(); };
+  document.getElementById("spUp").onclick = () => { speed = clamp(speed + 5, 5, 150); syncSpeedUI(); };
+
+  function syncSwitch(id, on) {
+    const el = document.getElementById(id);
+    el.style.background = on ? "#e8482c" : "#3a3c46";
+    const knob = el.querySelector(".knob");
+    const isSmall = el.classList.contains("switch-sm");
+    knob.style.left = on ? (isSmall ? "22px" : "26px") : "4px";
+  }
+  function syncVoiceUI() {
+    syncSwitch("voiceToggle", voiceMode);
+    syncSwitch("dsVoiceToggle", voiceMode);
+    const hint = document.getElementById("voiceHint");
+    hint.textContent =
+      micStatus === "denied" ? "Camera/mic access was blocked — check Settings ▸ Safari, or tap Start to try again." :
+      micStatus === "unsupported" ? "This browser doesn't support mic input — voice mode will fall back to manual." :
+      "Camera/mic permission will be requested when you tap Start.";
+  }
+  function syncMirrorUI() {
+    syncSwitch("mirrorToggle", mirrored);
+    syncSwitch("dsMirrorToggle", mirrored);
+    document.getElementById("mirrorBtn").style.background = mirrored ? "#e8482c" : "rgba(60,60,64,.55)";
+    document.getElementById("trackWrap").style.transform = mirrored ? "scaleX(-1)" : "none";
+  }
+  function syncCameraUI() {
+    syncSwitch("cameraToggle", cameraEnabled);
+    document.getElementById("cameraOptions").style.display = cameraEnabled ? "block" : "none";
+    document.getElementById("camFront").classList.toggle("active", cameraFacing === "user");
+    document.getElementById("camBack").classList.toggle("active", cameraFacing === "environment");
+  }
+  document.getElementById("voiceToggle").onclick = toggleVoiceMode;
+  document.getElementById("dsVoiceToggle").onclick = toggleVoiceMode;
+  document.getElementById("mirrorToggle").onclick = () => { mirrored = !mirrored; syncMirrorUI(); };
+  document.getElementById("dsMirrorToggle").onclick = () => { mirrored = !mirrored; syncMirrorUI(); };
+  document.getElementById("mirrorBtn").onclick = e => { e.stopPropagation(); mirrored = !mirrored; syncMirrorUI(); };
+  document.getElementById("cameraToggle").onclick = () => { cameraEnabled = !cameraEnabled; syncCameraUI(); };
+  document.getElementById("camFront").onclick = () => { cameraFacing = "user"; syncCameraUI(); };
+  document.getElementById("camBack").onclick = () => { cameraFacing = "environment"; syncCameraUI(); };
+  syncVoiceUI(); syncMirrorUI(); syncFontSizeUI(); syncSpeedUI(); syncCameraUI();
+
+  function toggleVoiceMode() {
+    if (voiceMode) { voiceMode = false; if (!cameraEnabled) stopMedia(); }
+    else { voiceMode = true; if (document.getElementById("prompter").style.display === "block" && !mediaStream) startMedia(); }
+    syncVoiceUI();
+  }
+
+  // ---- camera + mic ----
+  // Requested together, directly inside a user tap, so Safari reliably shows
+  // the permission prompt instead of silently withholding it.
+  async function startMedia() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      micStatus = "unsupported"; renderStatus(); return;
+    }
+    const wantVideo = cameraEnabled;
+    const wantAudio = voiceMode || cameraEnabled;
+    try {
+      micStatus = "requesting"; renderStatus();
+      mediaStream = await navigator.mediaDevices.getUserMedia({
+        audio: wantAudio,
+        video: wantVideo ? { facingMode: cameraFacing, width: { ideal: 1280 }, height: { ideal: 720 } } : false,
+      });
+    } catch (err) {
+      // If camera+mic together failed, fall back to audio-only so voice mode can still work.
+      if (wantVideo) {
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({ audio: wantAudio, video: false });
+          cameraEnabled = false;
+          document.getElementById("flipCamBtn").style.display = "none";
+        } catch (err2) {
+          micStatus = "denied"; renderStatus(); return;
+        }
+      } else {
+        micStatus = "denied"; renderStatus(); return;
+      }
+    }
+    micStatus = "active"; renderStatus();
+    attachVideoPreview();
+    if (wantAudio) startAnalyser();
+  }
+
+  function attachVideoPreview() {
+    const videoTracks = mediaStream.getVideoTracks();
+    const camEl = document.getElementById("camPreview");
+    const flipBtn = document.getElementById("flipCamBtn");
+    if (videoTracks.length) {
+      camEl.srcObject = mediaStream;
+      camEl.classList.toggle("back-cam", cameraFacing === "environment");
+      camEl.style.display = "block";
+      document.getElementById("dimOverlay").style.display = "block";
+      flipBtn.style.display = "flex";
+    } else {
+      camEl.style.display = "none";
+      document.getElementById("dimOverlay").style.display = "none";
+      flipBtn.style.display = "none";
+    }
+  }
+
+  function startAnalyser() {
+    const audioTracks = mediaStream.getAudioTracks();
+    if (!audioTracks.length) return;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new Ctx();
+    const source = audioCtx.createMediaStreamSource(new MediaStream([audioTracks[0]]));
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 1024;
+    analyser.smoothingTimeConstant = 0.6;
+    source.connect(analyser);
+
+    const data = new Uint8Array(analyser.fftSize);
+    const threshold = 6;
+    let frame = 0;
+    (function poll() {
+      if (!analyser) return;
+      analyser.getByteTimeDomainData(data);
+      let sumSq = 0;
+      for (let i = 0; i < data.length; i++) { const v = data[i] - 128; sumSq += v * v; }
+      const rms = Math.sqrt(sumSq / data.length);
+      if (rms > threshold) { lastSpeechAt = performance.now(); speaking = true; }
+      else if (performance.now() - lastSpeechAt > 700) { speaking = false; }
+      frame++;
+      if (frame % 4 === 0) { micLevel = clamp(Math.round((rms / 60) * 100), 0, 100); renderStatus(); }
+      requestAnimationFrame(poll);
+    })();
+  }
+
+  function stopMedia() {
+    if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
+    if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+    analyser = null; micStatus = "idle";
+    document.getElementById("camPreview").style.display = "none";
+    document.getElementById("dimOverlay").style.display = "none";
+    document.getElementById("flipCamBtn").style.display = "none";
+    renderStatus();
+  }
+
+  async function flipCamera() {
+    if (isRecording || !cameraEnabled) return;
+    cameraFacing = cameraFacing === "user" ? "environment" : "user";
+    if (mediaStream) mediaStream.getTracks().forEach(t => t.stop());
+    if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+    await startMedia();
+  }
+  document.getElementById("flipCamBtn").onclick = e => { e.stopPropagation(); flipCamera(); };
+
+  function renderStatus() {
+    const pill = document.getElementById("statusPill");
+    const drawerMeterWrap = document.getElementById("drawerMeterWrap");
+    const retryBtn = document.getElementById("micRetryBtn");
+    if (!voiceMode && !cameraEnabled) {
+      pill.innerHTML = '<span>Manual mode</span>';
+      drawerMeterWrap.style.display = "none"; retryBtn.style.display = "none";
+      return;
+    }
+    if (micStatus === "active") {
+      const label = cameraEnabled ? (voiceMode ? (speaking ? "🎙 Hearing you" : "… Quiet") : "📷 Camera on") : (speaking ? "🎙 Hearing you" : "… Quiet");
+      pill.innerHTML = voiceMode
+        ? `<span>${label}</span><span class="meter"><span class="fill" style="width:${micLevel}%;background:${speaking ? '#3ddc6a' : '#fff'}"></span></span>`
+        : `<span>${label}</span>`;
+      drawerMeterWrap.style.display = voiceMode ? "block" : "none";
+      document.getElementById("drawerMeterFill").style.width = micLevel + "%";
+      document.getElementById("drawerMeterFill").style.background = speaking ? "#3ddc6a" : "#666";
+      retryBtn.style.display = "none";
+    } else if (micStatus === "denied" || micStatus === "unsupported") {
+      pill.innerHTML = '<button class="linklike" id="pillRetry">Retry</button>';
+      document.getElementById("pillRetry").onclick = e => { e.stopPropagation(); startMedia(); };
+      drawerMeterWrap.style.display = "none"; retryBtn.style.display = "block";
+    } else if (micStatus === "requesting") {
+      pill.innerHTML = '<span>Requesting access…</span>';
+      drawerMeterWrap.style.display = "none"; retryBtn.style.display = "none";
+    } else {
+      pill.innerHTML = '<button class="linklike" id="pillEnable">Enable</button>';
+      document.getElementById("pillEnable").onclick = e => { e.stopPropagation(); startMedia(); };
+      drawerMeterWrap.style.display = "none"; retryBtn.style.display = "none";
+    }
+    syncVoiceUI();
+  }
+  document.getElementById("micRetryBtn").onclick = startMedia;
+
+  // ---- recording ----
+  function pickMimeType() {
+    const candidates = [
+      "video/mp4;codecs=avc1,mp4a.40.2", "video/mp4",
+      "video/webm;codecs=vp9,opus", "video/webm;codecs=vp8,opus", "video/webm",
+    ];
+    for (const c of candidates) { if (window.MediaRecorder && MediaRecorder.isTypeSupported(c)) return c; }
+    return "";
+  }
+  function startRecording() {
+    if (!mediaStream) return;
+    const mimeType = pickMimeType();
+    recordedChunks = [];
+    try {
+      mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
+    } catch (e) {
+      mediaRecorder = new MediaRecorder(mediaStream);
+    }
+    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+    mediaRecorder.onstop = onRecordingStopped;
+    mediaRecorder.start();
+    isRecording = true;
+    recStartTs = Date.now();
+    document.getElementById("recordBtn").classList.add("recording");
+    document.getElementById("recIndicator").style.display = "flex";
+    recTimerInterval = setInterval(updateRecTimer, 500);
+    document.getElementById("flipCamBtn").style.display = "none";
+  }
+  function updateRecTimer() {
+    const secs = Math.floor((Date.now() - recStartTs) / 1000);
+    const m = Math.floor(secs / 60), s = secs % 60;
+    document.getElementById("recTime").textContent = m + ":" + String(s).padStart(2, "0");
+  }
+  function stopRecording() {
+    if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+    isRecording = false;
+    clearInterval(recTimerInterval);
+    document.getElementById("recordBtn").classList.remove("recording");
+    document.getElementById("recIndicator").style.display = "none";
+    if (cameraEnabled) document.getElementById("flipCamBtn").style.display = "flex";
+  }
+  document.getElementById("recordBtn").onclick = e => {
+    e.stopPropagation();
+    if (!mediaStream) { alert("Enable the camera or mic first, then start recording."); return; }
+    isRecording ? stopRecording() : startRecording();
+  };
+
+  function onRecordingStopped() {
+    const mt = recordedChunks[0] ? recordedChunks[0].type : "video/mp4";
+    const blob = new Blob(recordedChunks, { type: mt });
+    const ext = mt.includes("mp4") ? "mp4" : "webm";
+    const url = URL.createObjectURL(blob);
+    const reviewVideo = document.getElementById("reviewVideo");
+    reviewVideo.src = url;
+    document.getElementById("saveOverlay").style.display = "flex";
+    isPlaying = false; setPlaying(false);
+
+    document.getElementById("saveBtn").onclick = async () => {
+      const file = new File([blob], "teleprompter-recording." + ext, { type: mt });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try { await navigator.share({ files: [file], title: "Teleprompter recording" }); return; }
+        catch (e) { /* user cancelled share sheet, fall through to download */ }
+      }
+      const a = document.createElement("a");
+      a.href = url; a.download = "teleprompter-recording." + ext;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    };
+    document.getElementById("discardBtn").onclick = () => {
+      document.getElementById("saveOverlay").style.display = "none";
+      reviewVideo.pause(); reviewVideo.removeAttribute("src"); reviewVideo.load();
+      URL.revokeObjectURL(url);
+    };
+  }
+
+  // ---- scroll animation ----
+  const trackWrap = document.getElementById("trackWrap");
+  function tick(ts) {
+    if (lastTs == null) lastTs = ts;
+    const dt = (ts - lastTs) / 1000; lastTs = ts;
+    const gateActive = voiceMode && micStatus === "active";
+    const recentlySpeaking = performance.now() - lastSpeechAt < 700;
+    const shouldMove = isPlaying && (!gateActive || recentlySpeaking);
+    if (shouldMove) {
+      scrollY += speed * dt;
+      trackWrap.style.transform = (mirrored ? "scaleX(-1) " : "") + `translateY(-${scrollY}px)`;
+    }
+    rafId = requestAnimationFrame(tick);
+  }
+
+  // ---- transport ----
+  function setPlaying(v) {
+    isPlaying = v;
+    document.getElementById("playBtn").textContent = v ? "❚❚" : "▶";
+  }
+  document.getElementById("playBtn").onclick = e => { e.stopPropagation(); setPlaying(!isPlaying); };
+  document.getElementById("restartBtn").onclick = e => {
+    e.stopPropagation();
+    scrollY = -window.innerHeight * 0.4;
+    trackWrap.style.transform = (mirrored ? "scaleX(-1) " : "") + `translateY(${window.innerHeight * 0.4}px)`;
+    setPlaying(false);
+  };
+  document.getElementById("exitBtn").onclick = e => {
+    e.stopPropagation();
+    if (isRecording) stopRecording();
+    setPlaying(false); stopMedia();
+    if (rafId) cancelAnimationFrame(rafId);
+    document.getElementById("prompter").style.display = "none";
+    document.getElementById("setup").style.display = "block";
+    if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
+  };
+  document.getElementById("settingsBtn").onclick = e => {
+    e.stopPropagation();
+    const d = document.getElementById("settingsDrawer");
+    d.style.display = d.style.display === "block" ? "none" : "block";
+  };
+  document.getElementById("settingsDrawer").onclick = e => e.stopPropagation();
+
+  // auto-hide controls (never hides while recording, so status stays visible)
+  function bumpControls() {
+    document.getElementById("topBar").style.opacity = "1";
+    document.getElementById("bottomBar").style.opacity = "1";
+    if (hideTimer) clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      if (isRecording) return;
+      document.getElementById("topBar").style.opacity = "0";
+      document.getElementById("bottomBar").style.opacity = "0";
+    }, 2600);
+  }
+  document.getElementById("prompter").addEventListener("click", bumpControls);
+
+  // ---- start flow ----
+  document.getElementById("startBtn").onclick = () => {
+    const scriptText = document.getElementById("script").value;
+    if (!scriptText.trim()) return;
+    document.getElementById("trackText").textContent = scriptText;
+    document.getElementById("trackText").style.fontFamily = fontFamily;
+    document.getElementById("trackText").style.fontSize = fontSize + "px";
+    document.getElementById("trackText").style.color = textColor;
+    document.getElementById("prompter").style.background = bgColor;
+
+    if (voiceMode || cameraEnabled) startMedia();
+
+    if ("wakeLock" in navigator) {
+      navigator.wakeLock.request("screen").then(wl => wakeLock = wl).catch(() => {});
+    }
+
+    document.getElementById("setup").style.display = "none";
+    document.getElementById("prompter").style.display = "block";
+    bumpControls();
+
+    scrollY = -window.innerHeight * 0.4;
+    trackWrap.style.transform = (mirrored ? "scaleX(-1) " : "") + `translateY(${window.innerHeight * 0.4}px)`;
+    setPlaying(false);
+
+    const overlay = document.getElementById("countdownOverlay");
+    const num = document.getElementById("countdownNum");
+    overlay.style.display = "flex";
+    let n = 3; num.textContent = n;
+    const iv = setInterval(() => {
+      n -= 1;
+      if (n <= 0) { clearInterval(iv); overlay.style.display = "none"; setPlaying(true); }
+      else { num.textContent = n; }
+    }, 800);
+
+    lastTs = null;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(tick);
+  };
+})();
+</script>
+</body>
+</html>
