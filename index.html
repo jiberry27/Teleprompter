@@ -399,7 +399,11 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
     if (!audioTracks.length) return;
     const Ctx = window.AudioContext || window.webkitAudioContext;
     audioCtx = new Ctx();
-    const source = audioCtx.createMediaStreamSource(new MediaStream([audioTracks[0]]));
+    // Safari can silently start this suspended if creation happens after an
+    // await rather than directly inside the tap — force it awake, and also
+    // catch it below in case it drifts back to suspended.
+    audioCtx.resume().catch(() => {});
+    const source = audioCtx.createMediaStreamSource(mediaStream);
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 1024;
     analyser.smoothingTimeConstant = 0.6;
@@ -410,6 +414,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
     let frame = 0;
     (function poll() {
       if (!analyser) return;
+      if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
       analyser.getByteTimeDomainData(data);
       let sumSq = 0;
       for (let i = 0; i < data.length; i++) { const v = data[i] - 128; sumSq += v * v; }
@@ -594,6 +599,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
 
   // auto-hide controls (never hides while recording, so status stays visible)
   function bumpControls() {
+    if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
     document.getElementById("topBar").style.opacity = "1";
     document.getElementById("bottomBar").style.opacity = "1";
     if (hideTimer) clearTimeout(hideTimer);
