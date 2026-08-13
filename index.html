@@ -583,14 +583,26 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
     mediaStream.getVideoTracks().forEach(t => recStream.addTrack(t.clone()));
     mediaStream.getAudioTracks().forEach(t => recStream.addTrack(t.clone()));
     recordingClonedTracks = recStream.getTracks();
+    // A moderate, explicit video bitrate instead of the browser's default —
+    // on iOS Safari an unconstrained default can push encoder memory
+    // pressure high quickly, which is a separate contributor to the same
+    // "video stalls, audio keeps going" failure.
+    const recorderOpts = Object.assign({ videoBitsPerSecond: 4000000 }, mimeType ? { mimeType } : {});
     try {
-      mediaRecorder = new MediaRecorder(recStream, mimeType ? { mimeType } : undefined);
+      mediaRecorder = new MediaRecorder(recStream, recorderOpts);
     } catch (e) {
-      mediaRecorder = new MediaRecorder(recStream);
+      try { mediaRecorder = new MediaRecorder(recStream, mimeType ? { mimeType } : undefined); }
+      catch (e2) { mediaRecorder = new MediaRecorder(recStream); }
     }
     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
     mediaRecorder.onstop = onRecordingStopped;
-    mediaRecorder.start();
+    mediaRecorder.onerror = () => { stopRecording(); };
+    // Flushing every second (rather than letting Safari try to hold the
+    // whole recording in memory until you stop) is the key fix — without a
+    // timeslice, iOS Safari's internal buffer can hit memory pressure within
+    // seconds on 720p video, which is what was silently stalling the video
+    // encoder while audio kept recording fine.
+    mediaRecorder.start(1000);
     isRecording = true;
     recStartTs = Date.now();
     document.getElementById("recordBtn").classList.add("recording");
