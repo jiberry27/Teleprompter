@@ -229,6 +229,10 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
       <span style="font-size:12px">Mirror text</span>
       <button class="switch-sm" id="dsMirrorToggle"><span class="knob"></span></button>
     </div>
+    <div class="drawer-toggle-row" style="margin-top:12px;margin-bottom:0">
+      <span style="font-size:12px">Reading line</span>
+      <button class="switch-sm" id="dsLineToggle"><span class="knob"></span></button>
+    </div>
   </div>
 
   <div class="bar" id="bottomBar">
@@ -264,7 +268,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   // ---- state ----
   let fontSize = 52, fontFamily = document.getElementById("fontFamily").value;
   let bgColor = "#000000", textColor = "#ffffff", activePreset = "Black";
-  let voiceMode = true, mirrored = false, speed = 40, readLinePct = 40;
+  let voiceMode = true, mirrored = false, speed = 40, readLinePct = 40, showReadingLine = true;
   let cameraEnabled = false, cameraFacing = "user"; // 'user' = front, 'environment' = back
   let isPlaying = false, speaking = false, micLevel = 0;
   let micStatus = "idle"; // idle|requesting|active|denied|unsupported
@@ -377,10 +381,16 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   document.getElementById("mirrorToggle").onclick = () => { mirrored = !mirrored; syncMirrorUI(); };
   document.getElementById("dsMirrorToggle").onclick = () => { mirrored = !mirrored; syncMirrorUI(); };
   document.getElementById("mirrorBtn").onclick = e => { e.stopPropagation(); mirrored = !mirrored; syncMirrorUI(); };
+  document.getElementById("dsLineToggle").onclick = () => {
+    showReadingLine = !showReadingLine;
+    syncSwitch("dsLineToggle", showReadingLine);
+    document.getElementById("centerLine").style.display = showReadingLine ? "block" : "none";
+  };
   document.getElementById("cameraToggle").onclick = () => { cameraEnabled = !cameraEnabled; syncCameraUI(); };
   document.getElementById("camFront").onclick = () => { cameraFacing = "user"; syncCameraUI(); };
   document.getElementById("camBack").onclick = () => { cameraFacing = "environment"; syncCameraUI(); };
   syncVoiceUI(); syncMirrorUI(); syncFontSizeUI(); syncSpeedUI(); syncCameraUI(); syncReadPosUI();
+  syncSwitch("dsLineToggle", showReadingLine);
 
   function toggleVoiceMode() {
     if (voiceMode) { voiceMode = false; if (!cameraEnabled) stopMedia(); }
@@ -658,11 +668,19 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
     document.getElementById("playBtn").textContent = v ? "❚❚" : "▶";
     document.getElementById("playLabel").textContent = v ? "Pause" : "Play";
   }
+  // A short, fixed run-up so the first words visibly enter from just below
+  // the reading line rather than a screen-scale offset that used to push
+  // the starting point off the bottom of the screen regardless of where
+  // "Text position" was set.
+  const PREROLL_PX = 140;
+  function resetScrollPosition() {
+    scrollY = -PREROLL_PX;
+    trackWrap.style.transform = (mirrored ? "scaleX(-1) " : "") + `translateY(${PREROLL_PX}px)`;
+  }
   document.getElementById("playBtn").onclick = e => { e.stopPropagation(); setPlaying(!isPlaying); };
   document.getElementById("restartBtn").onclick = e => {
     e.stopPropagation();
-    scrollY = -window.innerHeight * 0.4;
-    trackWrap.style.transform = (mirrored ? "scaleX(-1) " : "") + `translateY(${window.innerHeight * 0.4}px)`;
+    resetScrollPosition();
     setPlaying(false);
   };
   document.getElementById("exitBtn").onclick = e => {
@@ -770,8 +788,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
     document.getElementById("prompter").style.display = "block";
     bumpControls();
 
-    scrollY = -window.innerHeight * 0.4;
-    trackWrap.style.transform = (mirrored ? "scaleX(-1) " : "") + `translateY(${window.innerHeight * 0.4}px)`;
+    resetScrollPosition();
     setPlaying(false);
 
     const overlay = document.getElementById("countdownOverlay");
