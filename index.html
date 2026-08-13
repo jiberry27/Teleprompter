@@ -57,6 +57,8 @@
 
   .bar { position:absolute; left:0; right:0; display:flex; align-items:center; justify-content:space-between; padding:0 16px; transition:opacity .3s; z-index:10; }
   #topBar { top:max(.75rem, env(safe-area-inset-top)); }
+  .ctrl { display:flex; flex-direction:column; align-items:center; gap:5px; }
+  .ctrl-label { font-size:11px; font-weight:600; color:#fff; text-shadow:0 1px 4px rgba(0,0,0,.9); }
   .round-btn { width:44px; height:44px; border-radius:50%; border:none; background:rgba(60,60,64,.55); color:#fff; display:flex; align-items:center; justify-content:center; font-size:18px; }
   .pill { display:flex; align-items:center; gap:8px; padding:6px 12px; border-radius:999px; background:rgba(60,60,64,.55); color:#fff; font-size:12px; }
   .meter { width:40px; height:6px; border-radius:999px; overflow:hidden; background:rgba(255,255,255,.25); }
@@ -85,6 +87,7 @@
   #playBtn { width:64px; height:64px; border-radius:50%; border:none; background:#e8482c; color:#fff; font-size:24px; display:flex; align-items:center; justify-content:center; }
   #recordBtn { width:56px; height:56px; border-radius:50%; border:3px solid #fff; background:rgba(232,72,44,.15); display:flex; align-items:center; justify-content:center; }
   #recordBtn .dot { width:22px; height:22px; border-radius:50%; background:#e8482c; transition: border-radius .15s, width .15s, height .15s; }
+  #recordBtn.recording { background:#e8482c; }
   #recordBtn.recording .dot { border-radius:6px; width:18px; height:18px; }
 
   #saveOverlay { position:fixed; inset:0; z-index:50; background:rgba(8,8,10,.96); display:none; flex-direction:column; align-items:center; justify-content:center; padding: max(1.5rem, env(safe-area-inset-top)) 1.5rem max(1.5rem, env(safe-area-inset-bottom)); }
@@ -230,11 +233,11 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   </div>
 
   <div class="bar" id="bottomBar">
-    <button class="round-btn" id="restartBtn">⟲</button>
-    <button id="recordBtn"><span class="dot"></span></button>
-    <button id="playBtn">▶</button>
-    <button class="round-btn" id="flipCamBtn" style="display:none">⟳</button>
-    <button class="round-btn" id="mirrorBtn">⇋</button>
+    <div class="ctrl"><button class="round-btn" id="restartBtn">⟲</button><span class="ctrl-label">Restart</span></div>
+    <div class="ctrl"><button id="recordBtn"><span class="dot"></span></button><span class="ctrl-label" id="recordLabel">Record</span></div>
+    <div class="ctrl"><button id="playBtn">▶</button><span class="ctrl-label" id="playLabel">Play</span></div>
+    <div class="ctrl" id="flipCamCtrl" style="display:none"><button class="round-btn" id="flipCamBtn">⟳</button><span class="ctrl-label">Flip cam</span></div>
+    <div class="ctrl"><button class="round-btn" id="mirrorBtn">⇋</button><span class="ctrl-label">Mirror</span></div>
   </div>
 </div>
 
@@ -406,7 +409,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
         try {
           mediaStream = await navigator.mediaDevices.getUserMedia({ audio: wantAudio, video: false });
           cameraEnabled = false;
-          document.getElementById("flipCamBtn").style.display = "none";
+          document.getElementById("flipCamCtrl").style.display = "none";
         } catch (err2) {
           micStatus = "denied"; renderStatus(); return;
         }
@@ -422,19 +425,19 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   function attachVideoPreview() {
     const videoTracks = mediaStream.getVideoTracks();
     const camEl = document.getElementById("camPreview");
-    const flipBtn = document.getElementById("flipCamBtn");
+    const flipCtrl = document.getElementById("flipCamCtrl");
     if (videoTracks.length) {
       camEl.srcObject = mediaStream;
       camEl.classList.toggle("back-cam", cameraFacing === "environment");
       camEl.style.display = "block";
       document.getElementById("dimOverlay").style.display = "block";
       document.getElementById("readingBackdrop").style.display = "block";
-      flipBtn.style.display = "flex";
+      flipCtrl.style.display = "flex";
     } else {
       camEl.style.display = "none";
       document.getElementById("dimOverlay").style.display = "none";
       document.getElementById("readingBackdrop").style.display = "none";
-      flipBtn.style.display = "none";
+      flipCtrl.style.display = "none";
     }
   }
 
@@ -484,7 +487,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
     document.getElementById("camPreview").style.display = "none";
     document.getElementById("dimOverlay").style.display = "none";
     document.getElementById("readingBackdrop").style.display = "none";
-    document.getElementById("flipCamBtn").style.display = "none";
+    document.getElementById("flipCamCtrl").style.display = "none";
     renderStatus();
   }
 
@@ -512,7 +515,8 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
       return;
     }
     if (micStatus === "active") {
-      pillText.textContent = cameraEnabled ? (voiceMode ? (speaking ? "🎙 Hearing you" : "… Quiet") : "📷 Camera on") : (speaking ? "🎙 Hearing you" : "… Quiet");
+      const recPrefix = isRecording ? "🔴 REC — " : "";
+      pillText.textContent = recPrefix + (cameraEnabled ? (voiceMode ? (speaking ? "Hearing you" : "Quiet") : "Camera on") : (speaking ? "Hearing you" : "Quiet"));
       pillActionBtn.style.display = "none";
       if (voiceMode) {
         pillMeterWrap.style.display = "inline-flex";
@@ -570,9 +574,10 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
     isRecording = true;
     recStartTs = Date.now();
     document.getElementById("recordBtn").classList.add("recording");
+    document.getElementById("recordLabel").textContent = "Stop";
     document.getElementById("recIndicator").style.display = "flex";
     recTimerInterval = setInterval(updateRecTimer, 500);
-    document.getElementById("flipCamBtn").style.display = "none";
+    document.getElementById("flipCamCtrl").style.display = "none";
   }
   function updateRecTimer() {
     const secs = Math.floor((Date.now() - recStartTs) / 1000);
@@ -584,8 +589,9 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
     isRecording = false;
     clearInterval(recTimerInterval);
     document.getElementById("recordBtn").classList.remove("recording");
+    document.getElementById("recordLabel").textContent = "Record";
     document.getElementById("recIndicator").style.display = "none";
-    if (cameraEnabled) document.getElementById("flipCamBtn").style.display = "flex";
+    if (cameraEnabled) document.getElementById("flipCamCtrl").style.display = "flex";
   }
   document.getElementById("recordBtn").onclick = e => {
     e.stopPropagation();
@@ -639,6 +645,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   function setPlaying(v) {
     isPlaying = v;
     document.getElementById("playBtn").textContent = v ? "❚❚" : "▶";
+    document.getElementById("playLabel").textContent = v ? "Pause" : "Play";
   }
   document.getElementById("playBtn").onclick = e => { e.stopPropagation(); setPlaying(!isPlaying); };
   document.getElementById("restartBtn").onclick = e => {
@@ -678,6 +685,15 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
     if (newSpeed !== speed) { speed = newSpeed; syncSpeedUI(); flashSpeed(); }
   }, { passive: true });
   prompterEl.addEventListener("touchend", () => { swipeStartY = null; });
+
+  // ---- auto-stop if the tab is backgrounded, so recording never silently
+  // continues after you've left the page ----
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && prompterEl.style.display === "block") {
+      if (isRecording) stopRecording();
+      setPlaying(false);
+    }
+  });
 
   // ---- Bluetooth presentation-clicker / page-turn-pedal support ----
   // These pair as a standard Bluetooth keyboard and send ordinary key
