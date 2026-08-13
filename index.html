@@ -64,7 +64,6 @@
   .meter { width:40px; height:6px; border-radius:999px; overflow:hidden; background:rgba(255,255,255,.25); }
   .meter .fill { height:100%; border-radius:999px; background:#fff; width:0%; }
   .pill .linklike { color:#fff; text-decoration:underline; background:none; border:none; font-size:12px; padding:0; }
-  #pillActionBtn { color:#fff; text-decoration:underline; background:none; border:none; font-size:12px; padding:0; }
   #recIndicator { position:absolute; top:max(.75rem, env(safe-area-inset-top)); left:50%; transform:translateX(-50%); z-index:10; display:none; align-items:center; gap:6px; background:rgba(232,72,44,.9); color:#fff; padding:6px 14px; border-radius:999px; font-size:13px; font-weight:600; }
   #recIndicator .reddot { width:9px; height:9px; border-radius:50%; background:#fff; animation:blink 1s infinite; }
   @keyframes blink { 50% { opacity:.2; } }
@@ -188,7 +187,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
 
   <div class="bar" id="topBar">
     <button class="round-btn" id="exitBtn">✕</button>
-    <div class="pill" id="statusPill">
+    <div class="pill">
       <span id="pillText"></span>
       <span class="meter" id="pillMeterWrap" style="display:none"><span class="fill" id="pillMeterFill"></span></span>
       <button class="linklike" id="pillActionBtn" style="display:none"></button>
@@ -244,7 +243,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
 <div id="saveOverlay">
   <video id="reviewVideo" controls playsinline></video>
   <div class="title">Recording ready</div>
-  <div class="sub" id="saveSub">Save it to your camera roll, or discard and try again.</div>
+  <div class="sub">Save it to your camera roll, or discard and try again.</div>
   <div class="btn-row">
     <button id="discardBtn">Discard</button>
     <button id="saveBtn">Save</button>
@@ -274,6 +273,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   let audioCtx = null, analyser = null, mediaStream = null, wakeLock = null;
   let hideTimer = null;
   let mediaRecorder = null, recordedChunks = [], recStartTs = 0, recTimerInterval = null, isRecording = false;
+  let recordingClonedTracks = null;
   let statusUiInterval = null;
 
   // ---- setup screen: presets ----
@@ -284,7 +284,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
     b.style.background = p.bg; b.style.color = p.fg;
     b.textContent = p.label;
     b.onclick = () => {
-      activePreset = p.label; bgColor = p.bg; textColor = p.fg;
+      bgColor = p.bg; textColor = p.fg;
       document.getElementById("bgColor").value = p.bg;
       document.getElementById("textColor").value = p.fg;
       [...presetsEl.children].forEach(c => c.classList.remove("active"));
@@ -563,10 +563,20 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
     if (!mediaStream) return;
     const mimeType = pickMimeType();
     recordedChunks = [];
+    // Record from cloned tracks, not the same tracks driving the live
+    // preview + analyser. Sharing one video track across the on-screen
+    // <video> element, the AnalyserNode, and MediaRecorder at once is a
+    // known source of the encoder silently stalling on iOS Safari while
+    // audio keeps flowing — giving the recorder its own independent copy
+    // avoids that contention.
+    const recStream = new MediaStream();
+    mediaStream.getVideoTracks().forEach(t => recStream.addTrack(t.clone()));
+    mediaStream.getAudioTracks().forEach(t => recStream.addTrack(t.clone()));
+    recordingClonedTracks = recStream.getTracks();
     try {
-      mediaRecorder = new MediaRecorder(mediaStream, mimeType ? { mimeType } : undefined);
+      mediaRecorder = new MediaRecorder(recStream, mimeType ? { mimeType } : undefined);
     } catch (e) {
-      mediaRecorder = new MediaRecorder(mediaStream);
+      mediaRecorder = new MediaRecorder(recStream);
     }
     mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
     mediaRecorder.onstop = onRecordingStopped;
@@ -600,6 +610,7 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   };
 
   function onRecordingStopped() {
+    if (recordingClonedTracks) { recordingClonedTracks.forEach(t => t.stop()); recordingClonedTracks = null; }
     const mt = recordedChunks[0] ? recordedChunks[0].type : "video/mp4";
     const blob = new Blob(recordedChunks, { type: mt });
     const ext = mt.includes("mp4") ? "mp4" : "webm";
@@ -671,7 +682,11 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   document.getElementById("settingsDrawer").onclick = e => e.stopPropagation();
 
   // ---- swipe up/down anywhere on screen to adjust speed live ----
-  let swipeStartY = null, swipeStartSpeed = 40;
+  // Coalesced onto rAF and the flash pill only updates text (no repeated
+  // classList/timer churn per touch event) — while recording, every bit of
+  // extra main-thread work during a swipe raises the odds of the video
+  // encoder stalling, so this path is kept as light as possible.
+  let swipeStartY = null, swipeStartSpeed = 40, pendingTouchY = null, swipeRafPending = false;
   const prompterEl = document.getElementById("prompter");
   prompterEl.addEventListener("touchstart", e => {
     if (e.target.closest("button") || e.target.closest("#settingsDrawer")) { swipeStartY = null; return; }
@@ -680,11 +695,18 @@ Turn on Voice Mode and it will pause automatically whenever you pause, stumble, 
   }, { passive: true });
   prompterEl.addEventListener("touchmove", e => {
     if (swipeStartY == null) return;
-    const dy = swipeStartY - e.touches[0].clientY; // positive = finger moved up = faster
-    const newSpeed = clamp(Math.round(swipeStartSpeed + dy / 2.5), 5, 150);
-    if (newSpeed !== speed) { speed = newSpeed; syncSpeedUI(); flashSpeed(); }
+    pendingTouchY = e.touches[0].clientY;
+    if (swipeRafPending) return;
+    swipeRafPending = true;
+    requestAnimationFrame(() => {
+      swipeRafPending = false;
+      if (swipeStartY == null || pendingTouchY == null) return;
+      const dy = swipeStartY - pendingTouchY; // positive = finger moved up = faster
+      const newSpeed = clamp(Math.round(swipeStartSpeed + dy / 2.5), 5, 150);
+      if (newSpeed !== speed) { speed = newSpeed; syncSpeedUI(); flashSpeed(); }
+    });
   }, { passive: true });
-  prompterEl.addEventListener("touchend", () => { swipeStartY = null; });
+  prompterEl.addEventListener("touchend", () => { swipeStartY = null; pendingTouchY = null; });
 
   // ---- auto-stop if the tab is backgrounded, so recording never silently
   // continues after you've left the page ----
